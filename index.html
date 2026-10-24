@@ -91,6 +91,75 @@
       font-size: 0.9rem;
     }
 
+    #loginScreen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 90;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+      text-align: center;
+      gap: 12px;
+    }
+
+    #loginScreen.show {
+      display: flex;
+    }
+
+    #loginScreen img {
+      width: 88px;
+      height: 88px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+    }
+
+    #loginScreen h1 {
+      font-size: 1.5rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    #loginScreen p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      max-width: 280px;
+      margin-bottom: 12px;
+    }
+
+    .btn-google {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 560;
+      cursor: pointer;
+    }
+
+    .btn-google:active {
+      background: var(--bg-elevated);
+    }
+
+    .btn-google svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    #loginError {
+      color: var(--danger);
+      font-size: 0.85rem;
+      min-height: 1.2em;
+      margin-top: 8px;
+    }
+
     header {
       padding: 20px 20px 12px;
       position: sticky;
@@ -708,38 +777,23 @@
 <body>
   <div id="loading">
     <div class="spinner"></div>
-    <p>Cargando...</p>
+    <p id="loadingText">Cargando...</p>
   </div>
 
-  <div class="config-hint" id="configHint">
-    <h1>Configurar Firebase</h1>
-    <p>Para que la app funcione con datos en la nube, seguí estos pasos:</p>
-    <ol>
-      <li>Entrá a <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
-      <li>Creá un proyecto (o usá uno existente)</li>
-      <li>Activá <strong>Authentication</strong> → Sign-in method → <strong>Anónimo</strong></li>
-      <li>Creá una base <strong>Firestore</strong> (modo producción)</li>
-      <li>En Reglas de Firestore, pegá esto:</li>
-    </ol>
-    <pre>rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null
-                        && request.auth.uid == userId;
-    }
-  }
-}</pre>
-    <ol start="6">
-      <li>Project settings → Your apps → Web → copiá la config</li>
-      <li>Pegá los valores en <code>index.html</code> (buscá <code>firebaseConfig</code>)</li>
-      <li>Subí de nuevo a Vercel</li>
-    </ol>
-    <p style="margin-top:24px;color:var(--text-muted);font-size:0.85rem">
-      Nota: con Auth anónima, cada navegador/dispositivo tiene su propio usuario.
-      Los datos se guardan en la nube por dispositivo. Si más adelante querés sync entre celulares,
-      se puede agregar login con Google.
-    </p>
+  <div id="loginScreen">
+    <img src="icon-192.png" alt="MisGastos" />
+    <h1>MisGastos</h1>
+    <p>Iniciá sesión para guardar y sincronizar tus pagos.</p>
+    <button type="button" class="btn-google" id="googleBtn">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.2 1.2-.9 2.2-1.9 2.9l3.1 2.4c1.8-1.7 2.9-4.1 2.9-7 0-.7-.1-1.3-.2-1.9H12z"/>
+        <path fill="#34A853" d="M6.6 14.3l-.8.6-2.3 1.8C5.1 19.5 8.3 21.6 12 21.6c2.4 0 4.4-.8 5.9-2.1l-3.1-2.4c-.8.6-1.9.9-2.8.9-2.2 0-4-1.5-4.7-3.5z"/>
+        <path fill="#4A90E2" d="M3.5 7.3C2.7 8.8 2.2 10.4 2.2 12s.5 3.2 1.3 4.7l3.1-2.4c-.3-.9-.5-1.8-.5-2.3s.2-1.4.5-2.3L3.5 7.3z"/>
+        <path fill="#FBBC05" d="M12 5.4c1.3 0 2.5.5 3.4 1.3l2.6-2.6C16.4 2.6 14.4 1.8 12 1.8 8.3 1.8 5.1 3.9 3.5 7.3l3.1 2.4C7.9 6.9 9.8 5.4 12 5.4z"/>
+      </svg>
+      Continuar con Google
+    </button>
+    <p id="loginError"></p>
   </div>
 
   <header>
@@ -1343,13 +1397,75 @@ service cloud.firestore {
       showToast('Eliminado de este mes');
     });
 
-    async function init() {
-      if (isConfigMissing) {
-        loading.classList.add('hidden');
-        $('#configHint').classList.add('show');
-        return;
-      }
+    function showLogin(msg) {
+      loading.classList.add('hidden');
+      $('#loginScreen').classList.add('show');
+      if (msg) $('#loginError').textContent = msg;
+    }
 
+    function hideLogin() {
+      $('#loginScreen').classList.remove('show');
+      $('#loginError').textContent = '';
+    }
+
+    async function startApp(user) {
+      uid = user.uid;
+      hideLogin();
+      loading.classList.remove('hidden');
+      $('#loadingText').textContent = 'Sincronizando...';
+
+      try {
+        await Promise.race([
+          loadCategories(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Tiempo de espera agotado al leer Firestore')), 15000))
+        ]);
+        fillCategorySelect();
+        listenPayments();
+        loading.classList.add('hidden');
+      } catch (err) {
+        console.error(err);
+        loading.innerHTML = `
+          <p style="color:var(--danger);text-align:center;padding:0 24px">
+            Error al leer la base de datos.<br>
+            Revisá las reglas de Firestore.
+          </p>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px;padding:0 24px">${escapeHtml(err.message || '')}</p>
+          <button type="button" class="btn-google" style="margin-top:20px" id="retryBtn">Reintentar</button>
+        `;
+        const retry = document.getElementById('retryBtn');
+        if (retry) retry.addEventListener('click', () => location.reload());
+      }
+    }
+
+    async function signInWithGoogle() {
+      $('#loginError').textContent = '';
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      try {
+        // Popup en desktop; en algunos móviles PWA falla → fallback redirect
+        await firebase.auth().signInWithPopup(provider);
+      } catch (err) {
+        console.error(err);
+        if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+          try {
+            await firebase.auth().signInWithRedirect(provider);
+            return;
+          } catch (err2) {
+            $('#loginError').textContent = err2.message || 'No se pudo iniciar sesión';
+            return;
+          }
+        }
+        if (err.code === 'auth/operation-not-allowed') {
+          $('#loginError').textContent = 'Activá Google en Authentication → Sign-in method';
+        } else if (err.code === 'auth/unauthorized-domain') {
+          $('#loginError').textContent = 'Agregá el dominio de Vercel en Authorized domains';
+        } else {
+          $('#loginError').textContent = err.message || 'Error al iniciar sesión';
+        }
+      }
+    }
+
+    async function init() {
       try {
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
@@ -1361,22 +1477,37 @@ service cloud.firestore {
         }
 
         const auth = firebase.auth();
-        const cred = await auth.signInAnonymously();
-        uid = cred.user.uid;
 
-        await loadCategories();
-        fillCategorySelect();
-        listenPayments();
+        // Por si volvemos de signInWithRedirect
+        try {
+          await auth.getRedirectResult();
+        } catch (e) {
+          console.warn('Redirect result:', e.message);
+        }
 
-        loading.classList.add('hidden');
+        auth.onAuthStateChanged(async (user) => {
+          if (user) {
+            await startApp(user);
+          } else {
+            showLogin();
+          }
+        });
+
+        // Evitar carga infinita
+        setTimeout(() => {
+          if (!uid && !loading.classList.contains('hidden')) {
+            showLogin('La conexión tardó demasiado. Probá iniciar sesión.');
+          }
+        }, 12000);
+
+        $('#googleBtn').addEventListener('click', signInWithGoogle);
       } catch (err) {
         console.error(err);
         loading.innerHTML = `
           <p style="color:var(--danger);text-align:center;padding:0 24px">
-            Error al conectar con Firebase.<br>
-            Revisá la configuración y las reglas.
+            Error al conectar con Firebase.
           </p>
-          <p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px">${escapeHtml(err.message || '')}</p>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px;padding:0 24px">${escapeHtml(err.message || '')}</p>
         `;
       }
     }
