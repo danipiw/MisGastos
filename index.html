@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="FullRemoto — control de pagos mensuales" />
+  <meta name="apple-mobile-web-app-title" content="FullRemoto" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="favicon.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <title>FullRemoto</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --bg-card: #141c2e;
+      --bg-elevated: #1a2438;
+      --border: #243044;
+      --text: #e8eef9;
+      --text-muted: #8b9bb8;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.15);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 14px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+      overscroll-behavior: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      padding-top: var(--safe-top);
+      padding-bottom: calc(80px + var(--safe-bottom));
+    }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+      transition: opacity 0.3s;
+    }
+
+    #loading.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #loading p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    header {
+      padding: 20px 20px 12px;
+      position: sticky;
+      top: 0;
+      background: linear-gradient(to bottom, var(--bg) 80%, transparent);
+      z-index: 10;
+    }
+
+    .month-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .month-nav h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .month-nav button {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 1.1rem;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .month-nav button:active {
+      background: var(--bg-elevated);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .summary-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .summary-card .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .summary-card .value {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .summary-card.total .value { color: var(--text); }
+    .summary-card.paid .value { color: var(--success); }
+    .summary-card.remaining .value { color: var(--accent); }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+      padding: 16px 20px 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .filters::-webkit-scrollbar { display: none; }
+
+    .filter-btn {
+      flex-shrink: 0;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    main {
+      flex: 1;
+      padding: 8px 20px 20px;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty p {
+      margin-top: 8px;
+      font-size: 0.95rem;
+    }
+
+    .payment-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .payment-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: opacity 0.2s;
+    }
+
+    .payment-card.paid {
+      opacity: 0.55;
+    }
+
+    .payment-card.paid .name {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    .check {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .payment-card.paid .check {
+      background: var(--success);
+      border-color: var(--success);
+      color: #fff;
+      font-size: 0.75rem;
+    }
+
+    .payment-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .payment-info .name {
+      font-weight: 550;
+      font-size: 0.98rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .recurring-icon {
+      font-size: 0.75rem;
+      opacity: 0.7;
+      flex-shrink: 0;
+    }
+
+    .payment-info .meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+
+    .badge.overdue {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .badge.soon {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+    }
+
+    .amount {
+      font-weight: 600;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      letter-spacing: -0.01em;
+    }
+
+    .payment-card.paid .amount {
+      color: var(--text-muted);
+    }
+
+    .fab {
+      position: fixed;
+      bottom: calc(20px + var(--safe-bottom));
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-size: 1.6rem;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+      cursor: pointer;
+      z-index: 20;
+      transition: transform 0.15s;
+    }
+
+    .fab:active {
+      transform: scale(0.94);
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 50;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+
+    .modal-overlay.open {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--bg-elevated);
+      width: 100%;
+      max-width: 480px;
+      border-radius: 20px 20px 0 0;
+      padding: 24px 20px calc(24px + var(--safe-bottom));
+      transform: translateY(100%);
+      transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+      max-height: 90dvh;
+      overflow-y: auto;
+    }
+
+    .modal-overlay.open .modal {
+      transform: translateY(0);
+    }
+
+    .modal h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--accent);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .category-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .category-row select {
+      flex: 1;
+    }
+
+    .btn-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .btn-icon:active {
+      background: var(--bg-card);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+
+    .toggle-row span {
+      font-size: 0.95rem;
+    }
+
+    .toggle {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.2s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: var(--accent);
+    }
+
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(20px);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 13px;
+      border-radius: 12px;
+      border: none;
+      font-size: 0.95rem;
+      font-weight: 560;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .cat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .cat-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .cat-item input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      padding: 4px 0;
+    }
+
+    .cat-item .del {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--danger);
+      font-size: 1.1rem;
+      cursor: pointer;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+    }
+
+    .cat-item .del:active {
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .add-cat-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .add-cat-row input {
+      flex: 1;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+
+    .add-cat-row input:focus {
+      border-color: var(--accent);
+    }
+
+    .add-cat-row button {
+      padding: 0 16px;
+      border-radius: 10px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 560;
+      cursor: pointer;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: calc(90px + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.25s;
+      z-index: 60;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .config-hint {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 200;
+      padding: 32px 24px;
+      overflow-y: auto;
+    }
+
+    .config-hint.show {
+      display: block;
+    }
+
+    .config-hint h1 {
+      font-size: 1.3rem;
+      margin-bottom: 12px;
+    }
+
+    .config-hint p, .config-hint li {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .config-hint ol {
+      padding-left: 20px;
+      margin: 16px 0;
+    }
+
+    .config-hint code {
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: var(--accent);
+    }
+
+    .config-hint pre {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      margin: 12px 0 20px;
+      color: var(--text);
+    }
+
+    .config-hint a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Cargando...</p>
+  </div>
+
+  <div class="config-hint" id="configHint">
+    <h1>Configurar Firebase</h1>
+    <p>Para que la app funcione con datos en la nube, seguí estos pasos:</p>
+    <ol>
+      <li>Entrá a <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
+      <li>Creá un proyecto (o usá uno existente)</li>
+      <li>Activá <strong>Authentication</strong> → Sign-in method → <strong>Anónimo</strong></li>
+      <li>Creá una base <strong>Firestore</strong> (modo producción)</li>
+      <li>En Reglas de Firestore, pegá esto:</li>
+    </ol>
+    <pre>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null
+                        && request.auth.uid == userId;
+    }
+  }
+}</pre>
+    <ol start="6">
+      <li>Project settings → Your apps → Web → copiá la config</li>
+      <li>Pegá los valores en <code>index.html</code> (buscá <code>firebaseConfig</code>)</li>
+      <li>Subí de nuevo a Vercel</li>
+    </ol>
+    <p style="margin-top:24px;color:var(--text-muted);font-size:0.85rem">
+      Nota: con Auth anónima, cada navegador/dispositivo tiene su propio usuario.
+      Los datos se guardan en la nube por dispositivo. Si más adelante querés sync entre celulares,
+      se puede agregar login con Google.
+    </p>
+  </div>
+
+  <header>
+    <div class="month-nav">
+      <button id="prevMonth" aria-label="Mes anterior">‹</button>
+      <h1 id="monthTitle">—</h1>
+      <button id="nextMonth" aria-label="Mes siguiente">›</button>
+    </div>
+    <div class="summary">
+      <div class="summary-card total">
+        <div class="label">Total</div>
+        <div class="value" id="sumTotal">$0</div>
+      </div>
+      <div class="summary-card paid">
+        <div class="label">Pagado</div>
+        <div class="value" id="sumPaid">$0</div>
+      </div>
+      <div class="summary-card remaining">
+        <div class="label">Restante</div>
+        <div class="value" id="sumRemaining">$0</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="filters">
+    <button class="filter-btn active" data-filter="all">Todos</button>
+    <button class="filter-btn" data-filter="pending">Pendientes</button>
+    <button class="filter-btn" data-filter="paid">Pagados</button>
+  </div>
+
+  <main>
+    <div id="emptyState" class="empty" hidden>
+      <div style="font-size:2rem;opacity:0.4">📋</div>
+      <p>No hay pagos este mes.<br>Tocá + para agregar uno.</p>
+    </div>
+    <div class="payment-list" id="paymentList"></div>
+  </main>
+
+  <button class="fab" id="addBtn" aria-label="Agregar pago">+</button>
+
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h2 id="modalTitle">Nuevo pago</h2>
+      <form id="paymentForm">
+        <input type="hidden" id="editId" />
+        <div class="form-group">
+          <label for="name">Nombre</label>
+          <input type="text" id="name" placeholder="Ej. Alquiler, Luz, Netflix..." required autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="amount">Monto</label>
+            <input type="number" id="amount" placeholder="0" min="0" step="100" required />
+          </div>
+          <div class="form-group">
+            <label for="day">Día de vencimiento</label>
+            <input type="number" id="day" placeholder="1-31" min="1" max="31" required />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="category">Categoría</label>
+          <div class="category-row">
+            <select id="category"></select>
+            <button type="button" class="btn-icon" id="manageCatsBtn" title="Administrar categorías">✎</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="toggle-row">
+            <span>Recurrente (todos los meses)</span>
+            <label class="toggle">
+              <input type="checkbox" id="recurring" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+        <button type="button" class="btn btn-danger" id="deleteBtn" hidden>Eliminar</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="catModal">
+    <div class="modal">
+      <h2>Categorías</h2>
+      <div class="cat-list" id="catList"></div>
+      <div class="add-cat-row">
+        <input type="text" id="newCatName" placeholder="Nueva categoría..." autocomplete="off" />
+        <button type="button" id="addCatBtn">+</button>
+      </div>
+      <div class="modal-actions" style="margin-top:20px">
+        <button type="button" class="btn btn-primary" id="closeCatBtn" style="flex:1">Listo</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBJW-O0hLTO-EKYefuMKzUoT2ZDTLSMlXQ",
+      authDomain: "misgastos2-1a4d9.firebaseapp.com",
+      projectId: "misgastos2-1a4d9",
+      storageBucket: "misgastos2-1a4d9.firebasestorage.app",
+      messagingSenderId: "1076765539251",
+      appId: "1:1076765539251:web:c03df6ba29af25bd0d69c6"
+    };
+
+    const DEFAULT_CATS = ['Casa', 'Servicios', 'Suscripciones', 'Tarjetas', 'Otros'];
+    const isConfigMissing = false;
+
+    let currentDate = new Date();
+    let filter = 'all';
+    let payments = [];
+    let categories = [...DEFAULT_CATS];
+    let uid = null;
+    let db = null;
+    let unsubPayments = null;
+
+    const $ = (s) => document.querySelector(s);
+    const monthTitle = $('#monthTitle');
+    const paymentList = $('#paymentList');
+    const emptyState = $('#emptyState');
+    const modal = $('#modal');
+    const catModal = $('#catModal');
+    const form = $('#paymentForm');
+    const toastEl = $('#toast');
+    const loading = $('#loading');
+
+    function formatMoney(n) {
+      return '$' + Math.round(n).toLocaleString('es-AR');
+    }
+
+    function monthKey(d = currentDate) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function monthLabel(d = currentDate) {
+      const months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+      return `${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
+    function uidGen() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function userRef() {
+      return db.collection('users').doc(uid);
+    }
+
+    function paymentsRef() {
+      return userRef().collection('payments');
+    }
+
+    async function loadCategories() {
+      const snap = await userRef().get();
+      if (snap.exists && Array.isArray(snap.data().categories) && snap.data().categories.length) {
+        categories = snap.data().categories;
+      } else {
+        categories = [...DEFAULT_CATS];
+        await userRef().set({ categories }, { merge: true });
+      }
+    }
+
+    async function saveCategories() {
+      if (!uid) return;
+      await userRef().set({ categories }, { merge: true });
+    }
+
+    function listenPayments() {
+      if (unsubPayments) unsubPayments();
+      unsubPayments = paymentsRef().onSnapshot((snap) => {
+        payments = [];
+        snap.forEach(doc => {
+          payments.push({ id: doc.id, ...doc.data() });
+        });
+        ensureRecurringForMonth().then(() => render());
+      }, (err) => {
+        console.error(err);
+        showToast('Error al sincronizar');
+      });
+    }
+
+    async function savePayment(p) {
+      const { id, ...data } = p;
+      await paymentsRef().doc(id).set(data, { merge: true });
+    }
+
+    async function deletePayment(id) {
+      await paymentsRef().doc(id).delete();
+    }
+
+    async function ensureRecurringForMonth() {
+      const key = monthKey();
+      const templates = new Map();
+
+      payments.forEach(p => {
+        if (!p.recurring) return;
+        const tid = p.templateId || p.id;
+        if (!templates.has(tid) || (p.updatedAt || 0) > (templates.get(tid).updatedAt || 0)) {
+          templates.set(tid, {
+            templateId: tid,
+            name: p.name,
+            amount: p.amount,
+            day: p.day,
+            category: p.category,
+            recurring: true,
+            updatedAt: p.updatedAt || 0
+          });
+        }
+      });
+
+      const toCreate = [];
+      templates.forEach(t => {
+        const exists = payments.some(p =>
+          p.month === key &&
+          (p.templateId === t.templateId || (p.recurring && p.name === t.name && p.day === t.day))
+        );
+        if (!exists) {
+          toCreate.push({
+            id: uidGen(),
+            templateId: t.templateId,
+            name: t.name,
+            amount: t.amount,
+            day: t.day,
+            category: t.category,
+            month: key,
+            paid: false,
+            recurring: true,
+            updatedAt: Date.now()
+          });
+        }
+      });
+
+      for (const p of toCreate) {
+        payments.push(p);
+        await savePayment(p);
+      }
+    }
+
+    function getPaymentsForMonth() {
+      return payments.filter(p => p.month === monthKey());
+    }
+
+    function isOverdue(p) {
+      if (p.paid) return false;
+      const now = new Date();
+      const due = new Date(currentDate.getFullYear(), currentDate.getMonth(), p.day);
+      return due < new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+
+    function isSoon(p) {
+      if (p.paid || isOverdue(p)) return false;
+      const now = new Date();
+      const due = new Date(currentDate.getFullYear(), currentDate.getMonth(), p.day);
+      const diff = (due - now) / (1000 * 60 * 60 * 24);
+      return diff >= 0 && diff <= 3;
+    }
+
+    function fillCategorySelect(selected) {
+      const sel = $('#category');
+      sel.innerHTML = categories.map(c =>
+        `<option value="${escapeHtml(c)}" ${c === selected ? 'selected' : ''}>${escapeHtml(c)}</option>`
+      ).join('');
+    }
+
+    function render() {
+      monthTitle.textContent = monthLabel();
+      const list = getPaymentsForMonth();
+
+      const total = list.reduce((s, p) => s + Number(p.amount), 0);
+      const paid = list.filter(p => p.paid).reduce((s, p) => s + Number(p.amount), 0);
+      $('#sumTotal').textContent = formatMoney(total);
+      $('#sumPaid').textContent = formatMoney(paid);
+      $('#sumRemaining').textContent = formatMoney(total - paid);
+
+      let filtered = list;
+      if (filter === 'pending') filtered = list.filter(p => !p.paid);
+      if (filter === 'paid') filtered = list.filter(p => p.paid);
+
+      filtered.sort((a, b) => {
+        if (a.paid !== b.paid) return a.paid ? 1 : -1;
+        return a.day - b.day;
+      });
+
+      paymentList.innerHTML = '';
+      emptyState.hidden = filtered.length > 0;
+
+      filtered.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'payment-card' + (p.paid ? ' paid' : '');
+        card.dataset.id = p.id;
+
+        let badge = '';
+        if (isOverdue(p)) badge = '<span class="badge overdue">Vencido</span>';
+        else if (isSoon(p)) badge = '<span class="badge soon">Pronto</span>';
+
+        const recIcon = p.recurring ? '<span class="recurring-icon" title="Recurrente">↻</span>' : '';
+
+        card.innerHTML = `
+          <div class="check" role="button" aria-label="Marcar pagado">${p.paid ? '✓' : ''}</div>
+          <div class="payment-info">
+            <div class="name">${escapeHtml(p.name)}${recIcon}</div>
+            <div class="meta">
+              <span>Día ${p.day}</span>
+              <span>·</span>
+              <span>${escapeHtml(p.category || 'Otros')}</span>
+              ${badge}
+            </div>
+          </div>
+          <div class="amount">${formatMoney(p.amount)}</div>
+        `;
+
+        card.querySelector('.check').addEventListener('click', (e) => {
+          e.stopPropagation();
+          togglePaid(p.id);
+        });
+        card.addEventListener('click', () => openEdit(p));
+        paymentList.appendChild(card);
+      });
+    }
+
+    function renderCatList() {
+      const list = $('#catList');
+      list.innerHTML = '';
+      categories.forEach((c, i) => {
+        const item = document.createElement('div');
+        item.className = 'cat-item';
+        item.innerHTML = `
+          <input type="text" value="${escapeHtml(c)}" data-index="${i}" />
+          <button type="button" class="del" data-index="${i}" aria-label="Eliminar">×</button>
+        `;
+        item.querySelector('input').addEventListener('change', async (e) => {
+          const val = e.target.value.trim();
+          if (!val) {
+            e.target.value = categories[i];
+            return;
+          }
+          const old = categories[i];
+          categories[i] = val;
+          for (const p of payments) {
+            if (p.category === old) {
+              p.category = val;
+              await savePayment(p);
+            }
+          }
+          await saveCategories();
+          fillCategorySelect($('#category').value);
+        });
+        item.querySelector('.del').addEventListener('click', async () => {
+          if (categories.length <= 1) {
+            showToast('Debe haber al menos una categoría');
+            return;
+          }
+          const removed = categories.splice(i, 1)[0];
+          for (const p of payments) {
+            if (p.category === removed) {
+              p.category = categories[0];
+              await savePayment(p);
+            }
+          }
+          await saveCategories();
+          renderCatList();
+          fillCategorySelect();
+        });
+        list.appendChild(item);
+      });
+    }
+
+    async function togglePaid(id) {
+      const p = payments.find(x => x.id === id);
+      if (!p) return;
+      p.paid = !p.paid;
+      await savePayment(p);
+      showToast(p.paid ? 'Marcado como pagado' : 'Marcado como pendiente');
+    }
+
+    function openAdd() {
+      $('#modalTitle').textContent = 'Nuevo pago';
+      $('#editId').value = '';
+      form.reset();
+      $('#day').value = Math.min(new Date().getDate(), 28);
+      $('#recurring').checked = false;
+      $('#deleteBtn').hidden = true;
+      fillCategorySelect();
+      modal.classList.add('open');
+      setTimeout(() => $('#name').focus(), 300);
+    }
+
+    function openEdit(p) {
+      $('#modalTitle').textContent = 'Editar pago';
+      $('#editId').value = p.id;
+      $('#name').value = p.name;
+      $('#amount').value = p.amount;
+      $('#day').value = p.day;
+      $('#recurring').checked = !!p.recurring;
+      fillCategorySelect(p.category || 'Otros');
+      $('#deleteBtn').hidden = false;
+      modal.classList.add('open');
+    }
+
+    function closeModal() {
+      modal.classList.remove('open');
+    }
+
+    function openCatModal() {
+      renderCatList();
+      catModal.classList.add('open');
+      $('#newCatName').value = '';
+    }
+
+    function closeCatModal() {
+      catModal.classList.remove('open');
+      fillCategorySelect($('#category').value);
+    }
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
+    }
+
+    $('#prevMonth').addEventListener('click', () => {
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      ensureRecurringForMonth().then(() => render());
+    });
+
+    $('#nextMonth').addEventListener('click', () => {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      ensureRecurringForMonth().then(() => render());
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filter = btn.dataset.filter;
+        render();
+      });
+    });
+
+    $('#addBtn').addEventListener('click', openAdd);
+    $('#cancelBtn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    $('#manageCatsBtn').addEventListener('click', openCatModal);
+    $('#closeCatBtn').addEventListener('click', closeCatModal);
+    catModal.addEventListener('click', (e) => {
+      if (e.target === catModal) closeCatModal();
+    });
+
+    $('#addCatBtn').addEventListener('click', async () => {
+      const name = $('#newCatName').value.trim();
+      if (!name) return;
+      if (categories.some(c => c.toLowerCase() === name.toLowerCase())) {
+        showToast('Ya existe esa categoría');
+        return;
+      }
+      categories.push(name);
+      await saveCategories();
+      $('#newCatName').value = '';
+      renderCatList();
+      showToast('Categoría agregada');
+    });
+
+    $('#newCatName').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        $('#addCatBtn').click();
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = $('#editId').value;
+      const isRecurring = $('#recurring').checked;
+      const data = {
+        name: $('#name').value.trim(),
+        amount: Number($('#amount').value),
+        day: Number($('#day').value),
+        category: $('#category').value,
+        month: monthKey(),
+        recurring: isRecurring,
+        updatedAt: Date.now()
+      };
+
+      if (id) {
+        const p = payments.find(x => x.id === id);
+        if (p) {
+          const templateId = p.templateId || p.id;
+          Object.assign(p, data, {
+            paid: p.paid,
+            templateId: isRecurring ? templateId : null
+          });
+          await savePayment(p);
+
+          if (isRecurring) {
+            for (const other of payments) {
+              if (other.id === p.id) continue;
+              if (
+                other.templateId === templateId ||
+                (other.recurring && other.name === p.name && other.day === p.day && !other.templateId)
+              ) {
+                other.name = data.name;
+                other.amount = data.amount;
+                other.day = data.day;
+                other.category = data.category;
+                other.recurring = true;
+                other.templateId = templateId;
+                other.updatedAt = Date.now();
+                await savePayment(other);
+              }
+            }
+            p.templateId = templateId;
+            await savePayment(p);
+          }
+        }
+        showToast('Pago actualizado');
+      } else {
+        const newId = uidGen();
+        const p = {
+          id: newId,
+          ...data,
+          paid: false,
+          templateId: isRecurring ? newId : null
+        };
+        await savePayment(p);
+        showToast(isRecurring ? 'Pago recurrente agregado' : 'Pago agregado');
+      }
+
+      closeModal();
+    });
+
+    $('#deleteBtn').addEventListener('click', async () => {
+      const id = $('#editId').value;
+      if (!id) return;
+      await deletePayment(id);
+      closeModal();
+      showToast('Eliminado de este mes');
+    });
+
+    async function init() {
+      if (isConfigMissing) {
+        loading.classList.add('hidden');
+        $('#configHint').classList.add('show');
+        return;
+      }
+
+      try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+
+        try {
+          await db.enablePersistence({ synchronizeTabs: true });
+        } catch (e) {
+          console.warn('Persistence:', e.message);
+        }
+
+        const auth = firebase.auth();
+        const cred = await auth.signInAnonymously();
+        uid = cred.user.uid;
+
+        await loadCategories();
+        fillCategorySelect();
+        listenPayments();
+
+        loading.classList.add('hidden');
+      } catch (err) {
+        console.error(err);
+        loading.innerHTML = `
+          <p style="color:var(--danger);text-align:center;padding:0 24px">
+            Error al conectar con Firebase.<br>
+            Revisá la configuración y las reglas.
+          </p>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px">${escapeHtml(err.message || '')}</p>
+        `;
+      }
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
+    init();
+  </script>
+</body>
+</html>
