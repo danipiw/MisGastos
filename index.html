@@ -300,6 +300,14 @@
       color: var(--warning);
     }
 
+    .amount-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
     .amount {
       font-weight: 600;
       font-size: 0.95rem;
@@ -309,6 +317,26 @@
 
     .payment-card.paid .amount {
       color: var(--text-muted);
+    }
+
+    .btn-copy {
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 560;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-copy:active {
+      background: rgba(59, 130, 246, 0.28);
+    }
+
+    .payment-card.paid .btn-copy {
+      opacity: 0.7;
     }
 
     .fab {
@@ -779,6 +807,10 @@ service cloud.firestore {
           </div>
         </div>
         <div class="form-group">
+          <label for="reference">Alias / CBU / Referencia</label>
+          <input type="text" id="reference" placeholder="Ej. alias.mp, CBU o nro. de referencia" autocomplete="off" />
+        </div>
+        <div class="form-group">
           <div class="toggle-row">
             <span>Recurrente (todos los meses)</span>
             <label class="toggle">
@@ -930,6 +962,7 @@ service cloud.firestore {
             amount: p.amount,
             day: p.day,
             category: p.category,
+            reference: p.reference || '',
             recurring: true,
             updatedAt: p.updatedAt || 0
           });
@@ -950,6 +983,7 @@ service cloud.firestore {
             amount: t.amount,
             day: t.day,
             category: t.category,
+            reference: t.reference || '',
             month: key,
             paid: false,
             recurring: true,
@@ -1022,6 +1056,10 @@ service cloud.firestore {
         else if (isSoon(p)) badge = '<span class="badge soon">Pronto</span>';
 
         const recIcon = p.recurring ? '<span class="recurring-icon" title="Recurrente">↻</span>' : '';
+        const hasRef = !!(p.reference && String(p.reference).trim());
+        const copyBtn = hasRef
+          ? `<button type="button" class="btn-copy" data-ref="${escapeHtml(String(p.reference).trim())}">Copiar</button>`
+          : '';
 
         card.innerHTML = `
           <div class="check" role="button" aria-label="Marcar pagado">${p.paid ? '✓' : ''}</div>
@@ -1034,13 +1072,23 @@ service cloud.firestore {
               ${badge}
             </div>
           </div>
-          <div class="amount">${formatMoney(p.amount)}</div>
+          <div class="amount-col">
+            <div class="amount">${formatMoney(p.amount)}</div>
+            ${copyBtn}
+          </div>
         `;
 
         card.querySelector('.check').addEventListener('click', (e) => {
           e.stopPropagation();
           togglePaid(p.id);
         });
+        const copyEl = card.querySelector('.btn-copy');
+        if (copyEl) {
+          copyEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyText(copyEl.dataset.ref || p.reference);
+          });
+        }
         card.addEventListener('click', () => openEdit(p));
         paymentList.appendChild(card);
       });
@@ -1101,11 +1149,35 @@ service cloud.firestore {
       showToast(p.paid ? 'Marcado como pagado' : 'Marcado como pendiente');
     }
 
+    async function copyText(text) {
+      const value = String(text || '').trim();
+      if (!value) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(value);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = value;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        showToast('Copiado');
+      } catch (err) {
+        console.error(err);
+        showToast('No se pudo copiar');
+      }
+    }
+
     function openAdd() {
       $('#modalTitle').textContent = 'Nuevo pago';
       $('#editId').value = '';
       form.reset();
       $('#day').value = Math.min(new Date().getDate(), 28);
+      $('#reference').value = '';
       $('#recurring').checked = false;
       $('#deleteBtn').hidden = true;
       fillCategorySelect();
@@ -1119,6 +1191,7 @@ service cloud.firestore {
       $('#name').value = p.name;
       $('#amount').value = p.amount;
       $('#day').value = p.day;
+      $('#reference').value = p.reference || '';
       $('#recurring').checked = !!p.recurring;
       fillCategorySelect(p.category || 'Otros');
       $('#deleteBtn').hidden = false;
@@ -1208,6 +1281,7 @@ service cloud.firestore {
         amount: Number($('#amount').value),
         day: Number($('#day').value),
         category: $('#category').value,
+        reference: $('#reference').value.trim(),
         month: monthKey(),
         recurring: isRecurring,
         updatedAt: Date.now()
@@ -1234,6 +1308,7 @@ service cloud.firestore {
                 other.amount = data.amount;
                 other.day = data.day;
                 other.category = data.category;
+                other.reference = data.reference;
                 other.recurring = true;
                 other.templateId = templateId;
                 other.updatedAt = Date.now();
