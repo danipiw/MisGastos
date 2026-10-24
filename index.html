@@ -161,10 +161,10 @@
     }
 
     header {
-      padding: 20px 20px 12px;
+      padding: 20px 20px 0;
       position: sticky;
       top: 0;
-      background: linear-gradient(to bottom, var(--bg) 80%, transparent);
+      background: var(--bg);
       z-index: 10;
     }
 
@@ -233,7 +233,7 @@
     .filters {
       display: flex;
       gap: 8px;
-      padding: 16px 20px 8px;
+      padding: 14px 0 12px;
       overflow-x: auto;
       scrollbar-width: none;
     }
@@ -816,13 +816,12 @@
         <div class="value" id="sumRemaining">$0</div>
       </div>
     </div>
+    <div class="filters">
+      <button class="filter-btn active" data-filter="all">Todos</button>
+      <button class="filter-btn" data-filter="pending">Pendientes</button>
+      <button class="filter-btn" data-filter="paid">Pagados</button>
+    </div>
   </header>
-
-  <div class="filters">
-    <button class="filter-btn active" data-filter="all">Todos</button>
-    <button class="filter-btn" data-filter="pending">Pendientes</button>
-    <button class="filter-btn" data-filter="paid">Pagados</button>
-  </div>
 
   <main>
     <div id="emptyState" class="empty" hidden>
@@ -919,6 +918,7 @@
     let filter = 'all';
     let payments = [];
     let categories = [...DEFAULT_CATS];
+    let skippedRecurring = {}; // { templateId: ['2026-10', ...] }
     let uid = null;
     let db = null;
     let unsubPayments = null;
@@ -966,17 +966,42 @@
 
     async function loadCategories() {
       const snap = await userRef().get();
-      if (snap.exists && Array.isArray(snap.data().categories) && snap.data().categories.length) {
-        categories = snap.data().categories;
+      if (snap.exists) {
+        const data = snap.data() || {};
+        if (Array.isArray(data.categories) && data.categories.length) {
+          categories = data.categories;
+        } else {
+          categories = [...DEFAULT_CATS];
+          await userRef().set({ categories }, { merge: true });
+        }
+        skippedRecurring = data.skippedRecurring && typeof data.skippedRecurring === 'object'
+          ? data.skippedRecurring
+          : {};
       } else {
         categories = [...DEFAULT_CATS];
-        await userRef().set({ categories }, { merge: true });
+        skippedRecurring = {};
+        await userRef().set({ categories, skippedRecurring: {} }, { merge: true });
       }
     }
 
     async function saveCategories() {
       if (!uid) return;
       await userRef().set({ categories }, { merge: true });
+    }
+
+    async function skipRecurringMonth(templateId, month) {
+      if (!templateId || !month) return;
+      const list = Array.isArray(skippedRecurring[templateId])
+        ? skippedRecurring[templateId].slice()
+        : [];
+      if (!list.includes(month)) list.push(month);
+      skippedRecurring[templateId] = list;
+      await userRef().set({ skippedRecurring }, { merge: true });
+    }
+
+    function isSkipped(templateId, month) {
+      const list = skippedRecurring[templateId];
+      return Array.isArray(list) && list.includes(month);
     }
 
     function listenPayments() {
@@ -986,20 +1011,35 @@
         snap.forEach(doc => {
           payments.push({ id: doc.id, ...doc.data() });
         });
-        ensureRecurringForMonth().then(() => render());
+        ensureRecurringForMonth().then(() => render()).catch((err) => {
+          console.error(err);
+          showToast('Error al generar recurrentes');
+        });
       }, (err) => {
         console.error(err);
-        showToast('Error al sincronizar');
+        showToast('Error al sincronizar: ' + (err.code || err.message || ''));
       });
     }
 
     async function savePayment(p) {
       const { id, ...data } = p;
-      await paymentsRef().doc(id).set(data, { merge: true });
+      try {
+        await paymentsRef().doc(id).set(data, { merge: true });
+      } catch (err) {
+        console.error(err);
+        showToast('No se pudo guardar: ' + (err.code || err.message || ''));
+        throw err;
+      }
     }
 
     async function deletePayment(id) {
-      await paymentsRef().doc(id).delete();
+      try {
+        await paymentsRef().doc(id).delete();
+      } catch (err) {
+        console.error(err);
+        showToast('No se pudo eliminar: ' + (err.code || err.message || ''));
+        throw err;
+      }
     }
 
     async function ensureRecurringForMonth() {
@@ -1025,6 +1065,8 @@
 
       const toCreate = [];
       templates.forEach(t => {
+        if (isSkipped(t.templateId, key)) return;
+
         const exists = payments.some(p =>
           p.month === key &&
           (p.templateId === t.templateId || (p.recurring && p.name === t.name && p.day === t.day))
@@ -1392,9 +1434,21 @@
     $('#deleteBtn').addEventListener('click', async () => {
       const id = $('#editId').value;
       if (!id) return;
-      await deletePayment(id);
-      closeModal();
-      showToast('Eliminado de este mes');
+      const p = payments.find(x => x.id === id);
+      if (!p) return;
+
+      try {
+        // Si es recurrente, marcar este mes como omitido para que no se regenere
+        if (p.recurring) {
+          const tid = p.templateId || p.id;
+          await skipRecurringMonth(tid, p.month || monthKey());
+        }
+        await deletePayment(id);
+        closeModal();
+        showToast(p.recurring ? 'Eliminado de este mes' : 'Pago eliminado');
+      } catch (_) {
+        // el toast de error ya se mostró
+      }
     });
 
     function showLogin(msg) {
@@ -1466,26 +1520,42 @@
     }
 
     async function init() {
+      if (typeof firebase === 'undefined') {
+        loading.innerHTML = `
+          <p style="color:var(--danger);text-align:center;padding:0 24px">
+            No se pudo cargar Firebase (red o bloqueo de scripts).
+          </p>
+        `;
+        return;
+      }
+
       try {
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
         db = firebase.firestore();
 
-        try {
-          await db.enablePersistence({ synchronizeTabs: true });
-        } catch (e) {
-          console.warn('Persistence:', e.message);
-        }
+        // No bloquear el arranque con persistencia
+        db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
         const auth = firebase.auth();
 
-        // Por si volvemos de signInWithRedirect
         try {
           await auth.getRedirectResult();
         } catch (e) {
           console.warn('Redirect result:', e.message);
         }
 
+        let settled = false;
+
         auth.onAuthStateChanged(async (user) => {
+          // Sesiones anónimas viejas: forzar logout para usar Google
+          if (user && user.isAnonymous) {
+            try { await auth.signOut(); } catch (_) {}
+            return;
+          }
+
+          settled = true;
           if (user) {
             await startApp(user);
           } else {
@@ -1493,12 +1563,12 @@
           }
         });
 
-        // Evitar carga infinita
+        // Si en 3s no hay respuesta de Auth, mostrar login igual
         setTimeout(() => {
-          if (!uid && !loading.classList.contains('hidden')) {
-            showLogin('La conexión tardó demasiado. Probá iniciar sesión.');
+          if (!settled && !uid) {
+            showLogin('Tocá el botón para iniciar sesión.');
           }
-        }, 12000);
+        }, 3000);
 
         $('#googleBtn').addEventListener('click', signInWithGoogle);
       } catch (err) {
@@ -1508,12 +1578,19 @@
             Error al conectar con Firebase.
           </p>
           <p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px;padding:0 24px">${escapeHtml(err.message || '')}</p>
+          <button type="button" class="btn-google" style="margin-top:20px" id="retryInitBtn">Reintentar</button>
         `;
+        const b = document.getElementById('retryInitBtn');
+        if (b) b.addEventListener('click', () => location.reload());
       }
     }
 
+    // Limpiar SW viejos para no quedar con HTML cacheado
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.update());
+      });
+      navigator.serviceWorker.register('sw.js?v=4').catch(() => {});
     }
 
     init();
