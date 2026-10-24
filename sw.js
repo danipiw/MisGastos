@@ -1,4 +1,4 @@
-const CACHE = 'fullremoto-v1';
+const CACHE = 'misgastos-v1';
 const ASSETS = [
   './',
   './index.html',

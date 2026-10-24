@@ -1,6 +1,6 @@
 {
-  "name": "FullRemoto",
-  "short_name": "FullRemoto",
+  "name": "MisGastos",
+  "short_name": "MisGastos",
   "description": "Control de pagos mensuales — simple y personal",
   "start_url": "./index.html",
   "display": "standalone",
