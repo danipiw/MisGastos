@@ -1006,18 +1006,21 @@
       if (!templateId) return;
       stoppedTemplates[templateId] = true;
       await userRef().set({ stoppedTemplates }, { merge: true });
-      // Quitar flag recurrente de todas las instancias para que no actúen como plantilla
-      for (const p of payments) {
-        const tid = p.templateId || p.id;
-        if (p.recurring && tid === templateId) {
-          p.recurring = false;
-          await savePayment(p);
-        }
-      }
     }
 
     function isTemplateStopped(templateId) {
       return !!(templateId && stoppedTemplates[templateId]);
+    }
+
+    /** Borra todas las instancias de un template (todos los meses) */
+    async function deleteAllWithTemplate(templateId) {
+      const toDelete = payments.filter((x) => {
+        const tid = x.templateId || (x.recurring ? x.id : null);
+        return tid === templateId || x.id === templateId;
+      });
+      for (const x of toDelete) {
+        await deletePayment(x.id);
+      }
     }
 
     function listenPayments() {
@@ -1411,30 +1414,29 @@
           await savePayment(p);
 
           if (isRecurring) {
-            // Si estaba detenido, reactivar
-            if (stoppedTemplates[templateId]) {
-              delete stoppedTemplates[templateId];
-              await userRef().set({ stoppedTemplates }, { merge: true });
+            // Si este template estaba detenido, usar uno nuevo (no reactivar el viejo)
+            let tid = templateId;
+            if (isTemplateStopped(templateId)) {
+              tid = uidGen();
             }
+            p.templateId = tid;
+            p.recurring = true;
+            await savePayment(p);
+
             for (const other of payments) {
               if (other.id === p.id) continue;
-              if (
-                other.templateId === templateId ||
-                (other.recurring && other.name === p.name && other.day === p.day && !other.templateId)
-              ) {
+              if (other.templateId === tid) {
                 other.name = data.name;
                 other.amount = data.amount;
                 other.day = data.day;
                 other.category = data.category;
                 other.reference = data.reference;
                 other.recurring = true;
-                other.templateId = templateId;
+                other.templateId = tid;
                 other.updatedAt = Date.now();
                 await savePayment(other);
               }
             }
-            p.templateId = templateId;
-            await savePayment(p);
           }
         }
         showToast('Pago actualizado');
@@ -1458,7 +1460,7 @@
       if (p.recurring) {
         $('#confirmTitle').textContent = '¿Eliminar pago recurrente?';
         $('#confirmMsg').textContent =
-          'Se elimina de este mes y no volverá a generarse en los meses siguientes.';
+          'Se elimina de todos los meses y no volverá a aparecer. Esta acción no se puede deshacer.';
       } else {
         $('#confirmTitle').textContent = '¿Eliminar pago?';
         $('#confirmMsg').textContent = 'Esta acción no se puede deshacer.';
@@ -1482,10 +1484,12 @@
         if (p.recurring) {
           const tid = p.templateId || p.id;
           await stopRecurringTemplate(tid);
+          await deleteAllWithTemplate(tid);
+        } else {
+          await deletePayment(id);
         }
-        await deletePayment(id);
         closeModal();
-        showToast(p.recurring ? 'Recurrente eliminado' : 'Pago eliminado');
+        showToast('Pago eliminado');
       } catch (_) {
         // toast de error ya mostrado
       }

@@ -1,4 +1,4 @@
-const CACHE = 'misgastos-v6';
+const CACHE = 'misgastos-v7';
 const ASSETS = [
   './manifest.json',
   './icon-192.png',
