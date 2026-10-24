@@ -895,6 +895,18 @@
     </div>
   </div>
 
+  <!-- Confirmación eliminar -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal" style="padding-top:28px">
+      <h2 id="confirmTitle">¿Eliminar pago?</h2>
+      <p id="confirmMsg" style="color:var(--text-muted);font-size:0.95rem;margin:-8px 0 8px;line-height:1.45"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="confirmCancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="confirmOk" style="background:var(--danger)">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -918,10 +930,11 @@
     let filter = 'all';
     let payments = [];
     let categories = [...DEFAULT_CATS];
-    let skippedRecurring = {}; // { templateId: ['2026-10', ...] }
+    let stoppedTemplates = {}; // { templateId: true } — ya no se regeneran
     let uid = null;
     let db = null;
     let unsubPayments = null;
+    let pendingDeleteId = null;
 
     const $ = (s) => document.querySelector(s);
     const monthTitle = $('#monthTitle');
@@ -974,13 +987,13 @@
           categories = [...DEFAULT_CATS];
           await userRef().set({ categories }, { merge: true });
         }
-        skippedRecurring = data.skippedRecurring && typeof data.skippedRecurring === 'object'
-          ? data.skippedRecurring
+        stoppedTemplates = data.stoppedTemplates && typeof data.stoppedTemplates === 'object'
+          ? data.stoppedTemplates
           : {};
       } else {
         categories = [...DEFAULT_CATS];
-        skippedRecurring = {};
-        await userRef().set({ categories, skippedRecurring: {} }, { merge: true });
+        stoppedTemplates = {};
+        await userRef().set({ categories, stoppedTemplates: {} }, { merge: true });
       }
     }
 
@@ -989,19 +1002,22 @@
       await userRef().set({ categories }, { merge: true });
     }
 
-    async function skipRecurringMonth(templateId, month) {
-      if (!templateId || !month) return;
-      const list = Array.isArray(skippedRecurring[templateId])
-        ? skippedRecurring[templateId].slice()
-        : [];
-      if (!list.includes(month)) list.push(month);
-      skippedRecurring[templateId] = list;
-      await userRef().set({ skippedRecurring }, { merge: true });
+    async function stopRecurringTemplate(templateId) {
+      if (!templateId) return;
+      stoppedTemplates[templateId] = true;
+      await userRef().set({ stoppedTemplates }, { merge: true });
+      // Quitar flag recurrente de todas las instancias para que no actúen como plantilla
+      for (const p of payments) {
+        const tid = p.templateId || p.id;
+        if (p.recurring && tid === templateId) {
+          p.recurring = false;
+          await savePayment(p);
+        }
+      }
     }
 
-    function isSkipped(templateId, month) {
-      const list = skippedRecurring[templateId];
-      return Array.isArray(list) && list.includes(month);
+    function isTemplateStopped(templateId) {
+      return !!(templateId && stoppedTemplates[templateId]);
     }
 
     function listenPayments() {
@@ -1049,6 +1065,7 @@
       payments.forEach(p => {
         if (!p.recurring) return;
         const tid = p.templateId || p.id;
+        if (isTemplateStopped(tid)) return;
         if (!templates.has(tid) || (p.updatedAt || 0) > (templates.get(tid).updatedAt || 0)) {
           templates.set(tid, {
             templateId: tid,
@@ -1065,7 +1082,7 @@
 
       const toCreate = [];
       templates.forEach(t => {
-        if (isSkipped(t.templateId, key)) return;
+        if (isTemplateStopped(t.templateId)) return;
 
         const exists = payments.some(p =>
           p.month === key &&
@@ -1394,6 +1411,11 @@
           await savePayment(p);
 
           if (isRecurring) {
+            // Si estaba detenido, reactivar
+            if (stoppedTemplates[templateId]) {
+              delete stoppedTemplates[templateId];
+              await userRef().set({ stoppedTemplates }, { merge: true });
+            }
             for (const other of payments) {
               if (other.id === p.id) continue;
               if (
@@ -1431,24 +1453,56 @@
       closeModal();
     });
 
-    $('#deleteBtn').addEventListener('click', async () => {
+    function openConfirmDelete(p) {
+      pendingDeleteId = p.id;
+      if (p.recurring) {
+        $('#confirmTitle').textContent = '¿Eliminar pago recurrente?';
+        $('#confirmMsg').textContent =
+          'Se elimina de este mes y no volverá a generarse en los meses siguientes.';
+      } else {
+        $('#confirmTitle').textContent = '¿Eliminar pago?';
+        $('#confirmMsg').textContent = 'Esta acción no se puede deshacer.';
+      }
+      $('#confirmModal').classList.add('open');
+    }
+
+    function closeConfirm() {
+      pendingDeleteId = null;
+      $('#confirmModal').classList.remove('open');
+    }
+
+    async function executeDelete() {
+      const id = pendingDeleteId;
+      if (!id) return;
+      const p = payments.find(x => x.id === id);
+      closeConfirm();
+      if (!p) return;
+
+      try {
+        if (p.recurring) {
+          const tid = p.templateId || p.id;
+          await stopRecurringTemplate(tid);
+        }
+        await deletePayment(id);
+        closeModal();
+        showToast(p.recurring ? 'Recurrente eliminado' : 'Pago eliminado');
+      } catch (_) {
+        // toast de error ya mostrado
+      }
+    }
+
+    $('#deleteBtn').addEventListener('click', () => {
       const id = $('#editId').value;
       if (!id) return;
       const p = payments.find(x => x.id === id);
       if (!p) return;
+      openConfirmDelete(p);
+    });
 
-      try {
-        // Si es recurrente, marcar este mes como omitido para que no se regenere
-        if (p.recurring) {
-          const tid = p.templateId || p.id;
-          await skipRecurringMonth(tid, p.month || monthKey());
-        }
-        await deletePayment(id);
-        closeModal();
-        showToast(p.recurring ? 'Eliminado de este mes' : 'Pago eliminado');
-      } catch (_) {
-        // el toast de error ya se mostró
-      }
+    $('#confirmCancel').addEventListener('click', closeConfirm);
+    $('#confirmOk').addEventListener('click', executeDelete);
+    $('#confirmModal').addEventListener('click', (e) => {
+      if (e.target === $('#confirmModal')) closeConfirm();
     });
 
     function showLogin(msg) {
